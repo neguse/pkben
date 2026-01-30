@@ -1,0 +1,50 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Run benchmarks
+        run: |
+          mkdir -p results
+          for n in 100000 500000 1000000 5000000 10000000; do
+            rm -rf db
+            ./build/pkben -n $n -t 5 --json > results/n${n}.json
+          done
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install matplotlib
+
+      - name: Generate graphs
+        run: python scripts/graph.py
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            results/
+            graphs/
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./graphs
+          destination_dir: graphs

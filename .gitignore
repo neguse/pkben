@@ -1,0 +1,15 @@
+# Build
+build/
+
+# Database
+db/
+
+# IDE
+.vs/
+.vscode/
+*.vcxproj*
+CMakeSettings.json
+
+# OS
+.DS_Store
+Thumbs.db
