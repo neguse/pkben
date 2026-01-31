@@ -10,6 +10,19 @@ SQLite Primary Key Benchmark - Compare SELECT performance across different PK ty
 | SNOWFLAKE | 8B | 64-bit timestamp-based ID |
 | UUIDV4 | 36B | Random UUID (TEXT) |
 | UUIDV7 | 36B | Timestamp-based UUID (TEXT), sortable |
+| INT64RAND | 8B | Random 64-bit integers |
+
+### WITHOUT ROWID Variants
+
+Each type above also has a `_NR` (WITHOUT ROWID) variant that uses SQLite's `WITHOUT ROWID` optimization. This stores the table as a clustered index on the primary key, which can improve performance for certain access patterns.
+
+| Type | Description |
+|------|-------------|
+| INT32_NR | INT32 with WITHOUT ROWID |
+| SNOWFLAKE_NR | SNOWFLAKE with WITHOUT ROWID |
+| UUIDV4_NR | UUIDV4 with WITHOUT ROWID |
+| UUIDV7_NR | UUIDV7 with WITHOUT ROWID |
+| INT64RAND_NR | INT64RAND with WITHOUT ROWID |
 
 ## Build
 
