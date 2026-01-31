@@ -42,6 +42,7 @@ jobs:
         run: |
           mkdir -p results
           for n in 100000 500000 1000000 5000000 10000000; do
+            rm -rf db
             ./build/pkben -n $n -t 5 -p ${{ matrix.pk_type }} --json > results/n${n}_${{ matrix.pk_type }}.json
           done
 
