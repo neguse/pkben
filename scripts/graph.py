@@ -7,10 +7,12 @@ import numpy as np
 
 def load_results(results_dir):
     data = []
-    for path in sorted(glob.glob(os.path.join(results_dir, "*.json"))):
+    for path in glob.glob(os.path.join(results_dir, "*.json")):
         with open(path) as f:
             d = json.load(f)
             data.append(d)
+    # レコード数で昇順ソート
+    data.sort(key=lambda d: d["params"]["records"])
     return data
 
 def format_num(n):
@@ -81,24 +83,38 @@ def main():
     fig.savefig(os.path.join(output_dir, "select.png"), dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-    # Comparison chart for latest run
+    # Comparison charts for latest run (split into normal and WITHOUT ROWID)
     latest = data[-1]
-    fig, ax = plt.subplots(figsize=(10, 6))
-    x = np.arange(n_types)
-    width = 0.35
-    insert_vals = [r["insert"] for r in latest["results"]]
-    select_vals = [r["select"] for r in latest["results"]]
-    ax.bar(x - width/2, insert_vals, width, label="INSERT/sec")
-    ax.bar(x + width/2, select_vals, width, label="SELECT/sec")
-    ax.set_xlabel("PK Type")
-    ax.set_ylabel("Operations/sec")
-    ax.set_title(f"Performance Comparison (n={format_num(latest['params']['records'])})")
-    ax.set_xticks(x)
-    ax.set_xticklabels(pk_types)
-    ax.legend()
-    ax.grid(True, alpha=0.3, axis="y")
-    fig.savefig(os.path.join(output_dir, "comparison.png"), dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    results = latest["results"]
+
+    # 通常版とWITHOUT ROWID版に分割
+    normal_results = [r for r in results if not r["type"].endswith("_NR")]
+    norowid_results = [r for r in results if r["type"].endswith("_NR")]
+
+    def plot_comparison(results_subset, filename, subtitle):
+        if not results_subset:
+            return
+        types = [r["type"] for r in results_subset]
+        n = len(types)
+        fig, ax = plt.subplots(figsize=(10, 6))
+        x = np.arange(n)
+        width = 0.35
+        insert_vals = [r["insert"] for r in results_subset]
+        select_vals = [r["select"] for r in results_subset]
+        ax.bar(x - width/2, insert_vals, width, label="INSERT/sec")
+        ax.bar(x + width/2, select_vals, width, label="SELECT/sec")
+        ax.set_xlabel("PK Type")
+        ax.set_ylabel("Operations/sec")
+        ax.set_title(f"Performance Comparison - {subtitle} (n={format_num(latest['params']['records'])})")
+        ax.set_xticks(x)
+        ax.set_xticklabels(types)
+        ax.legend()
+        ax.grid(True, alpha=0.3, axis="y")
+        fig.savefig(os.path.join(output_dir, filename), dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+    plot_comparison(normal_results, "comparison.png", "Normal")
+    plot_comparison(norowid_results, "comparison_norowid.png", "WITHOUT ROWID")
 
     print(f"Graphs saved to {output_dir}/")
 
