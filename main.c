@@ -31,10 +31,12 @@ typedef enum
     PK_SNOWFLAKE,
     PK_UUIDV4,
     PK_UUIDV7,
+    PK_INT64RAND,
     PK_INT32_NOROWID,
     PK_SNOWFLAKE_NOROWID,
     PK_UUIDV4_NOROWID,
-    PK_UUIDV7_NOROWID
+    PK_UUIDV7_NOROWID,
+    PK_INT64RAND_NOROWID
 } pk_type_t;
 
 static int is_norowid(pk_type_t pk_type)
@@ -50,7 +52,8 @@ static int is_text_pk(pk_type_t pk_type)
 
 static int is_int64_pk(pk_type_t pk_type)
 {
-    return pk_type == PK_SNOWFLAKE || pk_type == PK_SNOWFLAKE_NOROWID;
+    return pk_type == PK_SNOWFLAKE || pk_type == PK_SNOWFLAKE_NOROWID ||
+           pk_type == PK_INT64RAND || pk_type == PK_INT64RAND_NOROWID;
 }
 
 static double get_time(void)
@@ -270,6 +273,7 @@ static double create_database(const char *filename, pk_type_t pk_type)
         .sequence = 0,
         .machine_id = 1};
     int64_t current_snowflake = 0;
+    int64_t current_int64rand = 0;
     int64_t uuidv7_timestamp = 1700000000000LL;
     double start_time = get_time();
     int64_t last_report = 0;
@@ -305,6 +309,12 @@ static double create_database(const char *filename, pk_type_t pk_type)
                 generate_uuidv7(uuid_buf, &uuidv7_timestamp, &rng_state);
                 sqlite3_bind_text(insert_stmt, 1, uuid_buf, -1, SQLITE_TRANSIENT);
                 break;
+            case PK_INT64RAND:
+            case PK_INT64RAND_NOROWID:
+                current_int64rand = ((int64_t)xorshift32(&rng_state) << 32) | xorshift32(&rng_state);
+                if (current_int64rand < 0) current_int64rand = -current_int64rand;
+                sqlite3_bind_int64(insert_stmt, 1, current_int64rand);
+                break;
             }
             sqlite3_bind_blob(insert_stmt, 2, dummy_data, g_data_size, SQLITE_STATIC);
             sqlite3_step(insert_stmt);
@@ -318,9 +328,13 @@ static double create_database(const char *filename, pk_type_t pk_type)
                 {
                     sqlite3_bind_text(sample_stmt, 2, uuid_buf, -1, SQLITE_TRANSIENT);
                 }
-                else if (is_int64_pk(pk_type))
+                else if (pk_type == PK_SNOWFLAKE || pk_type == PK_SNOWFLAKE_NOROWID)
                 {
                     sqlite3_bind_int64(sample_stmt, 2, current_snowflake);
+                }
+                else if (pk_type == PK_INT64RAND || pk_type == PK_INT64RAND_NOROWID)
+                {
+                    sqlite3_bind_int64(sample_stmt, 2, current_int64rand);
                 }
                 else
                 {
@@ -521,15 +535,17 @@ int main(int argc, char **argv)
         {"SNOWFLAKE", "db/snowflake.db", PK_SNOWFLAKE},
         {"UUIDV4", "db/uuidv4.db", PK_UUIDV4},
         {"UUIDV7", "db/uuidv7.db", PK_UUIDV7},
+        {"INT64RAND", "db/int64rand.db", PK_INT64RAND},
         {"INT32_NR", "db/int32_norowid.db", PK_INT32_NOROWID},
         {"SNOWFLAKE_NR", "db/snowflake_norowid.db", PK_SNOWFLAKE_NOROWID},
         {"UUIDV4_NR", "db/uuidv4_norowid.db", PK_UUIDV4_NOROWID},
         {"UUIDV7_NR", "db/uuidv7_norowid.db", PK_UUIDV7_NOROWID},
+        {"INT64RAND_NR", "db/int64rand_norowid.db", PK_INT64RAND_NOROWID},
     };
     int num_tests = sizeof(tests) / sizeof(tests[0]);
 
-    double insert_results[8];
-    double select_results[8];
+    double insert_results[10];
+    double select_results[10];
 
     if (!g_json_output)
         printf("--- INSERT Phase ---\n");
