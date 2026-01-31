@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  benchmark:
+  build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -15,18 +14,64 @@ jobs:
           cmake -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build
 
-      - name: Run benchmarks
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkben-binary
+          path: build/pkben
+
+  benchmark:
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      matrix:
+        pk_type: [INT32, SNOWFLAKE, UUIDV4, UUIDV7, INT64RAND, INT32_NR, SNOWFLAKE_NR, UUIDV4_NR, UUIDV7_NR, INT64RAND_NR]
+      fail-fast: false
+
+    steps:
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: pkben-binary
+          path: build
+
+      - name: Make executable
+        run: chmod +x build/pkben
+
+      - name: Run benchmarks (pk=${{ matrix.pk_type }})
         run: |
           mkdir -p results
           for n in 100000 500000 1000000 5000000 10000000; do
-            rm -rf db
-            ./build/pkben -n $n -t 5 --json > results/n${n}.json
+            ./build/pkben -n $n -t 5 -p ${{ matrix.pk_type }} --json > results/n${n}_${{ matrix.pk_type }}.json
           done
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-${{ matrix.pk_type }}
+          path: results/
+
+  aggregate:
+    runs-on: ubuntu-latest
+    needs: benchmark
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: result-*
+          path: artifacts
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+
+      - name: Merge results
+        run: |
+          python scripts/merge_results.py artifacts results
 
       - name: Install dependencies
         run: pip install matplotlib

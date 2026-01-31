@@ -22,6 +22,7 @@ static int g_batch_size = 10000;
 static int g_data_size = 64;
 static int g_sample_interval = 100000;
 static int g_json_output = 0;
+static const char *g_pk_filter = NULL;
 
 static int get_sample_count(void) { return (int)(g_total_records / g_sample_interval); }
 
@@ -475,6 +476,7 @@ static void print_usage(const char *prog)
     printf("  -t SEC    Benchmark duration in seconds (default: %d)\n", g_benchmark_seconds);
     printf("  -b SIZE   Batch size for inserts (default: %d)\n", g_batch_size);
     printf("  -d SIZE   Data blob size in bytes (default: %d)\n", g_data_size);
+    printf("  -p TYPE   Run only specified PK type (e.g., INT32, SNOWFLAKE, UUIDV4, etc.)\n");
     printf("  --json    Output results as JSON\n");
     printf("  -h        Show this help\n");
 }
@@ -498,6 +500,10 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc)
         {
             g_data_size = atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc)
+        {
+            g_pk_filter = argv[++i];
         }
         else if (strcmp(argv[i], "--json") == 0)
         {
@@ -547,10 +553,29 @@ int main(int argc, char **argv)
     double insert_results[10];
     double select_results[10];
 
+    // Filter tests if -p option is specified
+    int run_test[10] = {0};
+    int run_count = 0;
+    for (int i = 0; i < num_tests; i++)
+    {
+        if (g_pk_filter == NULL || strcmp(tests[i].name, g_pk_filter) == 0)
+        {
+            run_test[i] = 1;
+            run_count++;
+        }
+    }
+
+    if (run_count == 0)
+    {
+        fprintf(stderr, "No matching PK type found for: %s\n", g_pk_filter);
+        return 1;
+    }
+
     if (!g_json_output)
         printf("--- INSERT Phase ---\n");
     for (int i = 0; i < num_tests; i++)
     {
+        if (!run_test[i]) continue;
         insert_results[i] = create_database(tests[i].filename, tests[i].pk_type);
     }
 
@@ -558,6 +583,7 @@ int main(int argc, char **argv)
         printf("\n--- SELECT Phase ---\n");
     for (int i = 0; i < num_tests; i++)
     {
+        if (!run_test[i]) continue;
         if (!g_json_output)
             printf("Benchmarking %s...\n", tests[i].name);
         sample_data_t samples = {0};
@@ -574,10 +600,13 @@ int main(int argc, char **argv)
     {
         printf("{\"params\":{\"records\":%lld,\"benchmark_sec\":%d,\"batch\":%d,\"data_size\":%d},\"results\":[",
                (long long)g_total_records, g_benchmark_seconds, g_batch_size, g_data_size);
+        int first = 1;
         for (int i = 0; i < num_tests; i++)
         {
+            if (!run_test[i]) continue;
             printf("%s{\"type\":\"%s\",\"insert\":%.0f,\"select\":%.0f}",
-                   i > 0 ? "," : "", tests[i].name, insert_results[i], select_results[i]);
+                   first ? "" : ",", tests[i].name, insert_results[i], select_results[i]);
+            first = 0;
         }
         printf("]}\n");
     }
@@ -588,6 +617,7 @@ int main(int argc, char **argv)
         printf("%-12s %15s %15s\n", "--------", "----------", "----------");
         for (int i = 0; i < num_tests; i++)
         {
+            if (!run_test[i]) continue;
             if (insert_results[i] > 0)
             {
                 printf("%-12s %15.0f %15.0f\n", tests[i].name, insert_results[i], select_results[i]);
