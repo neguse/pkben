@@ -9,6 +9,7 @@ jobs:
     strategy:
       matrix:
         records: [100000, 500000, 1000000, 5000000, 10000000]
+        pk_type: [INT32, SNOWFLAKE, UUIDV4, UUIDV7, INT64RAND, INT32_NR, SNOWFLAKE_NR, UUIDV4_NR, UUIDV7_NR, INT64RAND_NR]
       fail-fast: false
 
     steps:
@@ -19,17 +20,17 @@ jobs:
           cmake -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build
 
-      - name: Run benchmark (n=${{ matrix.records }})
+      - name: Run benchmark (n=${{ matrix.records }}, pk=${{ matrix.pk_type }})
         run: |
           mkdir -p results
           rm -rf db
-          ./build/pkben -n ${{ matrix.records }} -t 5 --json > results/n${{ matrix.records }}.json
+          ./build/pkben -n ${{ matrix.records }} -t 5 -p ${{ matrix.pk_type }} --json > results/n${{ matrix.records }}_${{ matrix.pk_type }}.json
 
       - name: Upload result
         uses: actions/upload-artifact@v4
         with:
-          name: result-${{ matrix.records }}
-          path: results/n${{ matrix.records }}.json
+          name: result-${{ matrix.records }}-${{ matrix.pk_type }}
+          path: results/n${{ matrix.records }}_${{ matrix.pk_type }}.json
 
   aggregate:
     runs-on: ubuntu-latest
@@ -44,18 +45,14 @@ jobs:
           pattern: result-*
           path: artifacts
 
-      - name: Merge results
-        run: |
-          mkdir -p results
-          for dir in artifacts/result-*; do
-            cp "$dir"/*.json results/
-          done
-          ls -la results/
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+
+      - name: Merge results
+        run: |
+          python scripts/merge_results.py artifacts results
 
       - name: Install dependencies
         run: pip install matplotlib
