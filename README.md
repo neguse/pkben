@@ -82,6 +82,8 @@ UUIDV7              678901          198765
 
 ![Performance Comparison](https://neguse.github.io/pkben/graphs/comparison.png)
 
+![Performance Comparison - WITHOUT ROWID](https://neguse.github.io/pkben/graphs/comparison_norowid.png)
+
 ![INSERT Performance](https://neguse.github.io/pkben/graphs/insert.png)
 
 ![SELECT Performance](https://neguse.github.io/pkben/graphs/select.png)
