@@ -6,6 +6,10 @@ on:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        records: [100000, 500000, 1000000, 5000000, 10000000]
+      fail-fast: false
 
     steps:
       - uses: actions/checkout@v4
@@ -15,13 +19,38 @@ jobs:
           cmake -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build
 
-      - name: Run benchmarks
+      - name: Run benchmark (n=${{ matrix.records }})
         run: |
           mkdir -p results
-          for n in 100000 500000 1000000 5000000 10000000; do
-            rm -rf db
-            ./build/pkben -n $n -t 5 --json > results/n${n}.json
+          rm -rf db
+          ./build/pkben -n ${{ matrix.records }} -t 5 --json > results/n${{ matrix.records }}.json
+
+      - name: Upload result
+        uses: actions/upload-artifact@v4
+        with:
+          name: result-${{ matrix.records }}
+          path: results/n${{ matrix.records }}.json
+
+  aggregate:
+    runs-on: ubuntu-latest
+    needs: benchmark
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: result-*
+          path: artifacts
+
+      - name: Merge results
+        run: |
+          mkdir -p results
+          for dir in artifacts/result-*; do
+            cp "$dir"/*.json results/
           done
+          ls -la results/
 
       - name: Setup Python
         uses: actions/setup-python@v5
