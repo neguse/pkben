@@ -30,8 +30,28 @@ typedef enum
     PK_INT32,
     PK_SNOWFLAKE,
     PK_UUIDV4,
-    PK_UUIDV7
+    PK_UUIDV7,
+    PK_INT32_NOROWID,
+    PK_SNOWFLAKE_NOROWID,
+    PK_UUIDV4_NOROWID,
+    PK_UUIDV7_NOROWID
 } pk_type_t;
+
+static int is_norowid(pk_type_t pk_type)
+{
+    return pk_type >= PK_INT32_NOROWID;
+}
+
+static int is_text_pk(pk_type_t pk_type)
+{
+    return pk_type == PK_UUIDV4 || pk_type == PK_UUIDV7 ||
+           pk_type == PK_UUIDV4_NOROWID || pk_type == PK_UUIDV7_NOROWID;
+}
+
+static int is_int64_pk(pk_type_t pk_type)
+{
+    return pk_type == PK_SNOWFLAKE || pk_type == PK_SNOWFLAKE_NOROWID;
+}
 
 static double get_time(void)
 {
@@ -197,20 +217,24 @@ static double create_database(const char *filename, pk_type_t pk_type)
     exec_sql(db, "PRAGMA cache_size=-2000000");
 
     const char *pk_def;
-    switch (pk_type)
+    if (is_text_pk(pk_type))
     {
-    case PK_INT32:
-    case PK_SNOWFLAKE:
-        pk_def = "INTEGER PRIMARY KEY";
-        break;
-    case PK_UUIDV4:
-    case PK_UUIDV7:
         pk_def = "TEXT PRIMARY KEY";
-        break;
+    }
+    else
+    {
+        pk_def = "INTEGER PRIMARY KEY";
     }
 
     char sql[256];
-    snprintf(sql, sizeof(sql), "CREATE TABLE IF NOT EXISTS items (id %s, data BLOB)", pk_def);
+    if (is_norowid(pk_type))
+    {
+        snprintf(sql, sizeof(sql), "CREATE TABLE IF NOT EXISTS items (id %s, data BLOB) WITHOUT ROWID", pk_def);
+    }
+    else
+    {
+        snprintf(sql, sizeof(sql), "CREATE TABLE IF NOT EXISTS items (id %s, data BLOB)", pk_def);
+    }
     exec_sql(db, sql);
     exec_sql(db, "CREATE TABLE IF NOT EXISTS pk_samples (id INTEGER PRIMARY KEY, pk_value)");
 
@@ -263,17 +287,21 @@ static double create_database(const char *filename, pk_type_t pk_type)
             switch (pk_type)
             {
             case PK_INT32:
+            case PK_INT32_NOROWID:
                 sqlite3_bind_int(insert_stmt, 1, (int32_t)i);
                 break;
             case PK_SNOWFLAKE:
+            case PK_SNOWFLAKE_NOROWID:
                 current_snowflake = generate_snowflake(&snowflake_gen, &rng_state);
                 sqlite3_bind_int64(insert_stmt, 1, current_snowflake);
                 break;
             case PK_UUIDV4:
+            case PK_UUIDV4_NOROWID:
                 generate_uuid(uuid_buf, &rng_state);
                 sqlite3_bind_text(insert_stmt, 1, uuid_buf, -1, SQLITE_TRANSIENT);
                 break;
             case PK_UUIDV7:
+            case PK_UUIDV7_NOROWID:
                 generate_uuidv7(uuid_buf, &uuidv7_timestamp, &rng_state);
                 sqlite3_bind_text(insert_stmt, 1, uuid_buf, -1, SQLITE_TRANSIENT);
                 break;
@@ -286,18 +314,17 @@ static double create_database(const char *filename, pk_type_t pk_type)
             {
                 int sample_idx = (int)(i / g_sample_interval);
                 sqlite3_bind_int(sample_stmt, 1, sample_idx);
-                switch (pk_type)
+                if (is_text_pk(pk_type))
                 {
-                case PK_INT32:
-                    sqlite3_bind_int(sample_stmt, 2, (int32_t)i);
-                    break;
-                case PK_SNOWFLAKE:
-                    sqlite3_bind_int64(sample_stmt, 2, current_snowflake);
-                    break;
-                case PK_UUIDV4:
-                case PK_UUIDV7:
                     sqlite3_bind_text(sample_stmt, 2, uuid_buf, -1, SQLITE_TRANSIENT);
-                    break;
+                }
+                else if (is_int64_pk(pk_type))
+                {
+                    sqlite3_bind_int64(sample_stmt, 2, current_snowflake);
+                }
+                else
+                {
+                    sqlite3_bind_int(sample_stmt, 2, (int32_t)i);
                 }
                 sqlite3_step(sample_stmt);
                 sqlite3_reset(sample_stmt);
@@ -341,7 +368,7 @@ static void load_samples(const char *filename, pk_type_t pk_type, sample_data_t 
     sqlite3_open(filename, &db);
 
     samples->count = get_sample_count();
-    if (pk_type == PK_UUIDV4 || pk_type == PK_UUIDV7)
+    if (is_text_pk(pk_type))
     {
         samples->uuid_samples = malloc(get_sample_count() * 37);
         samples->int_samples = NULL;
@@ -358,7 +385,7 @@ static void load_samples(const char *filename, pk_type_t pk_type, sample_data_t 
     int idx = 0;
     while (sqlite3_step(stmt) == SQLITE_ROW && idx < get_sample_count())
     {
-        if (pk_type == PK_UUIDV4 || pk_type == PK_UUIDV7)
+        if (is_text_pk(pk_type))
         {
             const char *text = (const char *)sqlite3_column_text(stmt, 0);
             strncpy(samples->uuid_samples[idx], text, 36);
@@ -401,7 +428,7 @@ static double run_benchmark(const char *filename, pk_type_t pk_type, sample_data
     {
         int idx = xorshift32(&rng) % samples->count;
 
-        if (pk_type == PK_UUIDV4 || pk_type == PK_UUIDV7)
+        if (is_text_pk(pk_type))
         {
             sqlite3_bind_text(select_stmt, 1, samples->uuid_samples[idx], -1, SQLITE_STATIC);
         }
@@ -494,11 +521,15 @@ int main(int argc, char **argv)
         {"SNOWFLAKE", "db/snowflake.db", PK_SNOWFLAKE},
         {"UUIDV4", "db/uuidv4.db", PK_UUIDV4},
         {"UUIDV7", "db/uuidv7.db", PK_UUIDV7},
+        {"INT32_NR", "db/int32_norowid.db", PK_INT32_NOROWID},
+        {"SNOWFLAKE_NR", "db/snowflake_norowid.db", PK_SNOWFLAKE_NOROWID},
+        {"UUIDV4_NR", "db/uuidv4_norowid.db", PK_UUIDV4_NOROWID},
+        {"UUIDV7_NR", "db/uuidv7_norowid.db", PK_UUIDV7_NOROWID},
     };
     int num_tests = sizeof(tests) / sizeof(tests[0]);
 
-    double insert_results[4];
-    double select_results[4];
+    double insert_results[8];
+    double select_results[8];
 
     if (!g_json_output)
         printf("--- INSERT Phase ---\n");
